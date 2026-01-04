@@ -133,6 +133,39 @@ export async function registerRoutes(
     res.json(vehicles);
   });
 
+  app.patch(api.vehicles.updateStatus.path, async (req, res) => {
+    const id = parseInt(req.params.id);
+    const vehicle = await storage.updateVehicleStatus(id, req.body);
+    res.json(vehicle);
+  });
+
+  // === FUEL & SERVICE API ===
+  app.post(api.fuel.add.path, async (req, res) => {
+    const log = await storage.createFuelLog(req.body);
+    // Update vehicle mileage too
+    await storage.updateVehicleStatus(req.body.vehicleId, { currentMileage: req.body.mileage });
+    res.status(201).json(log);
+  });
+
+  app.get(api.fuel.list.path, async (req, res) => {
+    const logs = await storage.getFuelLogs(parseInt(req.params.vehicleId));
+    res.json(logs);
+  });
+
+  app.post(api.service.add.path, async (req, res) => {
+    const log = await storage.createServiceLog(req.body);
+    await storage.updateVehicleStatus(req.body.vehicleId, { 
+      currentMileage: req.body.mileage,
+      lastServiceDate: new Date()
+    });
+    res.status(201).json(log);
+  });
+
+  app.get(api.service.list.path, async (req, res) => {
+    const logs = await storage.getServiceLogs(parseInt(req.params.vehicleId));
+    res.json(logs);
+  });
+
   // === DRIVER API ===
   app.post(api.drivers.register.path, async (req, res) => {
     try {

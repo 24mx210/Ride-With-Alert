@@ -78,7 +78,63 @@ export const api = {
         200: z.custom<typeof vehicles.$inferSelect & { driver?: typeof drivers.$inferSelect | null }>(),
         404: errorSchemas.notFound,
       },
+    },
+    updateStatus: {
+      method: 'PATCH' as const,
+      path: '/api/vehicle/:id/status',
+      input: z.object({
+        currentFuel: z.number().optional(),
+        currentMileage: z.number().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof vehicles.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
     }
+  },
+  fuel: {
+    add: {
+      method: 'POST' as const,
+      path: '/api/fuel/add',
+      input: z.object({
+        vehicleId: z.number(),
+        amount: z.string(),
+        cost: z.string(),
+        mileage: z.number(),
+      }),
+      responses: {
+        201: z.any(),
+      },
+    },
+    list: {
+      method: 'GET' as const,
+      path: '/api/fuel/:vehicleId',
+      responses: {
+        200: z.array(z.any()),
+      },
+    },
+  },
+  service: {
+    add: {
+      method: 'POST' as const,
+      path: '/api/service/add',
+      input: z.object({
+        vehicleId: z.number(),
+        description: z.string(),
+        cost: z.string(),
+        mileage: z.number(),
+      }),
+      responses: {
+        201: z.any(),
+      },
+    },
+    list: {
+      method: 'GET' as const,
+      path: '/api/service/:vehicleId',
+      responses: {
+        200: z.array(z.any()),
+      },
+    },
   },
   drivers: {
     register: {

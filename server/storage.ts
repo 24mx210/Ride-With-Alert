@@ -1,8 +1,8 @@
 import { db } from "./db";
 import {
-  managers, drivers, vehicles, emergencies,
-  type Manager, type Driver, type Vehicle, type Emergency,
-  type InsertManager, type InsertDriver, type InsertVehicle, type InsertEmergency
+  managers, drivers, vehicles, emergencies, fuelLogs, serviceLogs,
+  type Manager, type Driver, type Vehicle, type Emergency, type FuelLog, type ServiceLog,
+  type InsertManager, type InsertDriver, type InsertVehicle, type InsertEmergency, type InsertFuelLog, type InsertServiceLog
 } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 
@@ -22,12 +22,19 @@ export interface IStorage {
   getVehicleByNumber(number: string): Promise<Vehicle | undefined>;
   createVehicle(vehicle: InsertVehicle): Promise<Vehicle>;
   updateVehicleDriver(vehicleId: number, driverId: number): Promise<Vehicle>;
+  updateVehicleStatus(id: number, updates: Partial<Vehicle>): Promise<Vehicle>;
   getAllVehicles(): Promise<(Vehicle & { driver: Driver | null })[]>;
 
   // Emergency
   createEmergency(emergency: InsertEmergency): Promise<Emergency>;
   updateEmergencyStatus(id: number, status: "ACKNOWLEDGED"): Promise<Emergency>;
   getAllEmergencies(): Promise<(Emergency & { driver: Driver; vehicle: Vehicle })[]>;
+
+  // Fuel & Service
+  createFuelLog(log: InsertFuelLog): Promise<FuelLog>;
+  getFuelLogs(vehicleId: number): Promise<FuelLog[]>;
+  createServiceLog(log: InsertServiceLog): Promise<ServiceLog>;
+  getServiceLogs(vehicleId: number): Promise<ServiceLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -76,9 +83,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateVehicleDriver(vehicleId: number, driverId: number): Promise<Vehicle> {
-    // Also update driver's vehicleId for consistency (optional but good for bi-directional lookup)
     await db.update(drivers).set({ vehicleId }).where(eq(drivers.id, driverId));
-    
     const [updatedVehicle] = await db.update(vehicles)
       .set({ driverId })
       .where(eq(vehicles.id, vehicleId))
@@ -86,11 +91,17 @@ export class DatabaseStorage implements IStorage {
     return updatedVehicle;
   }
 
+  async updateVehicleStatus(id: number, updates: Partial<Vehicle>): Promise<Vehicle> {
+    const [updated] = await db.update(vehicles)
+      .set(updates)
+      .where(eq(vehicles.id, id))
+      .returning();
+    return updated;
+  }
+
   async getAllVehicles(): Promise<(Vehicle & { driver: Driver | null })[]> {
     const results = await db.query.vehicles.findMany({
-      with: {
-        driver: true
-      }
+      with: { driver: true }
     });
     return results;
   }
@@ -110,12 +121,27 @@ export class DatabaseStorage implements IStorage {
 
   async getAllEmergencies(): Promise<(Emergency & { driver: Driver; vehicle: Vehicle })[]> {
     return await db.query.emergencies.findMany({
-      with: {
-        driver: true,
-        vehicle: true
-      },
+      with: { driver: true, vehicle: true },
       orderBy: desc(emergencies.createdAt)
     });
+  }
+
+  async createFuelLog(log: InsertFuelLog): Promise<FuelLog> {
+    const [newLog] = await db.insert(fuelLogs).values(log).returning();
+    return newLog;
+  }
+
+  async getFuelLogs(vehicleId: number): Promise<FuelLog[]> {
+    return await db.select().from(fuelLogs).where(eq(fuelLogs.vehicleId, vehicleId)).orderBy(desc(fuelLogs.date));
+  }
+
+  async createServiceLog(log: InsertServiceLog): Promise<ServiceLog> {
+    const [newLog] = await db.insert(serviceLogs).values(log).returning();
+    return newLog;
+  }
+
+  async getServiceLogs(vehicleId: number): Promise<ServiceLog[]> {
+    return await db.select().from(serviceLogs).where(eq(serviceLogs.vehicleId, vehicleId)).orderBy(desc(serviceLogs.date));
   }
 }
 
