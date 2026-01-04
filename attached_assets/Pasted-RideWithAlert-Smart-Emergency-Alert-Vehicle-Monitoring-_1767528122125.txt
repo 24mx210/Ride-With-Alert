@@ -1,0 +1,352 @@
+RideWithAlert – Smart Emergency Alert & Vehicle Monitoring System
+
+(Full-Stack MERN Project – Laptop Simulation Version)
+
+1. PROJECT OVERVIEW (READ CAREFULLY)
+
+Build a production-grade, full-stack web application called RideWithAlert.
+
+The system simulates vehicle-mounted worker dashboards and a manager control dashboard, all running on laptop browsers.
+
+The goal is to provide a real-time emergency alert system where:
+
+Drivers can instantly raise emergencies
+
+Managers receive alarms, live location, and video evidence
+
+Nearby police and hospital control rooms receive alerts (simulated via API/logs)
+
+Acknowledgement stops alarms on both sides
+
+All emergency data is permanently stored
+
+This project must be fully functional, real-time, cleanly structured, and professionally coded.
+
+2. USERS & ROLES
+2.1 Manager
+
+Logs in via Manager Dashboard (Laptop)
+
+Registers vehicles
+
+Registers drivers
+
+Assigns drivers to vehicles
+
+Receives emergency alerts
+
+Views emergency video, map, and details
+
+Stops alarm & sends acknowledgement
+
+2.2 Driver (Worker)
+
+Logs in via Vehicle Dashboard (Laptop)
+
+Sees assigned vehicle details
+
+Tracks live location
+
+Can access camera
+
+Triggers emergency alert
+
+Receives acknowledgement
+
+2.3 Police & Hospital Control Room (Simulated)
+
+Receives emergency alerts via backend notification logs / mock API calls
+
+3. SYSTEM ASSUMPTIONS (IMPORTANT)
+
+All dashboards run on laptop browsers
+
+Each vehicle dashboard is simulated
+
+Laptop camera is used for emergency video
+
+Laptop geolocation API is used for live location
+
+Police & hospital alerts are simulated, not real integrations
+
+4. COMPLETE FUNCTIONAL FLOW (STRICT)
+4.1 Manager Flow
+
+Manager logs into Manager Dashboard
+
+Registers vehicles (vehicle number, type, fuel capacity)
+
+Registers drivers (name, phone, license, driver ID)
+
+Assigns a driver to a vehicle
+
+Waits for emergency alerts
+
+Receives alarm sound on emergency
+
+Views:
+
+Driver details
+
+Vehicle details
+
+Live location on map
+
+Emergency video
+
+Clicks Acknowledge / Stop Alarm
+
+Alarm stops on both dashboards
+
+Acknowledgement message sent to driver
+
+Emergency stored permanently in DB
+
+4.2 Driver (Vehicle Dashboard) Flow
+
+Driver logs in
+
+Sees assigned vehicle & manager details
+
+Dashboard shows:
+
+Live map
+
+Fuel range (mock data)
+
+Camera preview
+
+Emergency button
+
+Location updates continuously
+
+On emergency:
+
+Driver clicks Emergency Button
+
+Alarm plays immediately
+
+System auto-records 30–60 sec video
+
+Captures:
+
+Driver details
+
+Vehicle details
+
+Timestamp
+
+Location
+
+Emergency sent in real-time
+
+Driver sees Acknowledged status after manager action
+
+5. REAL-TIME REQUIREMENTS (MANDATORY)
+
+Use Socket.IO
+
+Real-time alarm triggering
+
+Real-time location updates
+
+Real-time acknowledgement updates
+
+No page refresh allowed for alerts
+
+6. TECHNOLOGY STACK (STRICT)
+Backend
+
+Node.js
+
+Express.js
+
+MongoDB + Mongoose
+
+Socket.IO
+
+Multer (video upload)
+
+JWT Authentication
+
+dotenv
+
+Frontend
+
+React.js (Vite or CRA)
+
+Axios
+
+Socket.IO Client
+
+HTML5 Geolocation API
+
+HTML5 MediaDevices API
+
+Leaflet or Google Maps (free tier)
+
+7. DATABASE SCHEMA (MANDATORY)
+Driver
+{
+  driverId: String,
+  name: String,
+  phone: String,
+  licenseNumber: String,
+  assignedVehicle: ObjectId,
+  createdAt: Date
+}
+
+Vehicle
+{
+  vehicleNumber: String,
+  type: String,
+  fuelCapacity: Number,
+  assignedDriver: ObjectId,
+  createdAt: Date
+}
+
+Emergency
+{
+  driverId: ObjectId,
+  vehicleId: ObjectId,
+  location: {
+    latitude: Number,
+    longitude: Number
+  },
+  videoUrl: String,
+  status: "ACTIVE" | "ACKNOWLEDGED",
+  timestamp: Date
+}
+
+8. API REQUIREMENTS (MUST IMPLEMENT ALL)
+Auth
+
+POST /api/auth/manager/login
+
+POST /api/auth/driver/login
+
+Vehicle
+
+POST /api/vehicle/register
+
+POST /api/vehicle/assign-driver
+
+Emergency
+
+POST /api/emergency/trigger
+
+POST /api/emergency/acknowledge
+
+GET /api/emergency/all
+
+Upload
+
+POST /api/upload/video
+
+9. SOCKET EVENTS (STRICT NAMES)
+Emit
+
+emergency_triggered
+
+location_update
+
+alarm_stop
+
+acknowledgement_sent
+
+Listen
+
+receive_emergency
+
+receive_location
+
+stop_alarm
+
+receive_acknowledgement
+
+10. UI REQUIREMENTS
+Manager Dashboard
+
+Login page
+
+Vehicle & Driver registration
+
+Alert card with:
+
+Map
+
+Video player
+
+Stop Alarm button
+
+Audible alarm
+
+Vehicle Dashboard
+
+Login page
+
+Assignment details
+
+Live map
+
+Camera preview
+
+Emergency button
+
+Audible alarm
+
+Acknowledgement banner
+
+11. ERROR HANDLING (MANDATORY)
+
+No crash on camera denial
+
+No crash on location denial
+
+Graceful socket disconnect handling
+
+Clear user-friendly error messages
+
+12. STORAGE RULES
+
+Emergency videos saved in /backend/uploads
+
+DB stores only video URL
+
+All emergencies permanently stored
+
+13. PROJECT STRUCTURE (MUST MATCH EXACTLY)
+RideWithAlert/
+│
+├── backend/
+│   ├── src/
+│   │   ├── config/db.js
+│   │   ├── models/
+│   │   │   ├── Driver.js
+│   │   │   ├── Vehicle.js
+│   │   │   └── Emergency.js
+│   │   ├── routes/
+│   │   ├── controllers/
+│   │   ├── sockets/alert.socket.js
+│   │   ├── middleware/auth.middleware.js
+│   │   ├── utils/videoUpload.js
+│   │   └── server.js
+│   ├── uploads/
+│   └── package.json
+│
+├── frontend/
+│   ├── manager-dashboard/
+│   └── vehicle-dashboard/
+│
+├── README.md
+└── .gitignore
+
+14. FINAL INSTRUCTION TO AI (VERY IMPORTANT)
+
+Generate the complete working project
+Include all backend + frontend code
+Follow best practices
+Use clean folder structure
+No placeholders
+No TODO comments
+Code must run immediately after npm install
