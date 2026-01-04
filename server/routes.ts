@@ -268,6 +268,33 @@ async function seed() {
     await storage.createManager({ username: "admin", password: "password123" });
     console.log("Seeded Manager: admin / password123");
   }
+
+  const vehicles = await storage.getAllVehicles();
+  if (vehicles.length > 0) {
+    const v = vehicles[0];
+    const fuelLogs = await storage.getFuelLogs(v.id);
+    if (fuelLogs.length === 0) {
+      await storage.createFuelLog({
+        vehicleId: v.id,
+        amount: "45.5",
+        cost: "68.25",
+        mileage: 1250,
+      });
+      await storage.createServiceLog({
+        vehicleId: v.id,
+        description: "Routine Oil Change and Brake Inspection",
+        cost: "150.00",
+        mileage: 1200,
+      });
+      await storage.updateVehicleStatus(v.id, {
+        currentMileage: 1250,
+        currentFuel: 85,
+        lastServiceDate: new Date(),
+        nextServiceMileage: 5000,
+      });
+      console.log("Seeded maintenance data for vehicle:", v.vehicleNumber);
+    }
+  }
 }
 
 // Run seed (async, don't await blocking server start)

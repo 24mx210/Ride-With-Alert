@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Map } from "@/components/Map";
 import { EmergencyAlert } from "@/components/EmergencyAlert";
-import { LayoutDashboard, Car, Users, LogOut, Radio, AlertOctagon } from "lucide-react";
+import { LayoutDashboard, Car, Users, LogOut, Radio, AlertOctagon, Settings, ShieldCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect } from "react";
 import { Emergency, Vehicle, Driver } from "@shared/schema";
@@ -187,10 +187,8 @@ export default function ManagerDashboard() {
               </Card>
             </div>
           </TabsContent>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-200px)]">
-              {/* Sidebar List */}
-              <Card className="col-span-1 border-slate-200 shadow-md h-full flex flex-col overflow-hidden">
-                <CardHeader>
+        </Tabs>
+      </main>
                   <CardTitle className="flex items-center justify-between">
                     <span>Active Alerts</span>
                     <span className="bg-red-100 text-red-600 px-2 py-1 rounded-full text-xs font-bold">
