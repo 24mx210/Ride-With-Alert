@@ -1,15 +1,24 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, Link } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 
+// Pages
+import Landing from "@/pages/Landing";
+import Login from "@/pages/Login";
+import ManagerDashboard from "@/pages/ManagerDashboard";
+import DriverDashboard from "@/pages/DriverDashboard";
+
 function Router() {
   return (
     <Switch>
-      {/* Add pages below */}
-      {/* <Route path="/" component={Home}/> */}
+      <Route path="/" component={Landing} />
+      <Route path="/login/:type" component={Login} />
+      <Route path="/manager/dashboard" component={ManagerDashboard} />
+      <Route path="/vehicle/dashboard" component={DriverDashboard} />
+      
       {/* Fallback to 404 */}
       <Route component={NotFound} />
     </Switch>
