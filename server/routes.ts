@@ -134,36 +134,62 @@ export async function registerRoutes(
   });
 
   app.patch(api.vehicles.updateStatus.path, async (req, res) => {
-    const id = parseInt(req.params.id);
-    const vehicle = await storage.updateVehicleStatus(id, req.body);
-    res.json(vehicle);
+    try {
+      const id = parseInt(req.params.id);
+      const vehicle = await storage.updateVehicleStatus(id, req.body);
+      if (!vehicle) {
+        return res.status(404).json({ message: "Vehicle not found" });
+      }
+      res.json(vehicle);
+    } catch (err) {
+      res.status(500).json({ message: "Internal server error" });
+    }
   });
 
   // === FUEL & SERVICE API ===
   app.post(api.fuel.add.path, async (req, res) => {
-    const log = await storage.createFuelLog(req.body);
-    // Update vehicle mileage too
-    await storage.updateVehicleStatus(req.body.vehicleId, { currentMileage: req.body.mileage });
-    res.status(201).json(log);
+    try {
+      const log = await storage.createFuelLog(req.body);
+      // Update vehicle mileage and fuel level
+      await storage.updateVehicleStatus(req.body.vehicleId, { 
+        currentMileage: req.body.mileage,
+        currentFuel: 100 // Assume full tank after log
+      });
+      res.status(201).json(log);
+    } catch (err) {
+      res.status(500).json({ message: "Internal server error" });
+    }
   });
 
   app.get(api.fuel.list.path, async (req, res) => {
-    const logs = await storage.getFuelLogs(parseInt(req.params.vehicleId));
-    res.json(logs);
+    try {
+      const logs = await storage.getFuelLogs(parseInt(req.params.vehicleId));
+      res.json(logs);
+    } catch (err) {
+      res.status(500).json({ message: "Internal server error" });
+    }
   });
 
   app.post(api.service.add.path, async (req, res) => {
-    const log = await storage.createServiceLog(req.body);
-    await storage.updateVehicleStatus(req.body.vehicleId, { 
-      currentMileage: req.body.mileage,
-      lastServiceDate: new Date()
-    });
-    res.status(201).json(log);
+    try {
+      const log = await storage.createServiceLog(req.body);
+      await storage.updateVehicleStatus(req.body.vehicleId, { 
+        currentMileage: req.body.mileage,
+        lastServiceDate: new Date()
+      });
+      res.status(201).json(log);
+    } catch (err) {
+      res.status(500).json({ message: "Internal server error" });
+    }
   });
 
   app.get(api.service.list.path, async (req, res) => {
-    const logs = await storage.getServiceLogs(parseInt(req.params.vehicleId));
-    res.json(logs);
+    try {
+      const logs = await storage.getServiceLogs(parseInt(req.params.vehicleId));
+      res.json(logs);
+    } catch (err) {
+      res.status(500).json({ message: "Internal server error" });
+    }
   });
 
   // === DRIVER API ===
