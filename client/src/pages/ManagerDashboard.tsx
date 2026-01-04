@@ -151,9 +151,42 @@ export default function ManagerDashboard() {
             <TabsTrigger value="fleet" className="data-[state=active]:bg-primary data-[state=active]:text-white">
               <Car className="w-4 h-4 mr-2" /> Fleet Management
             </TabsTrigger>
+            <TabsTrigger value="maintenance" className="data-[state=active]:bg-primary data-[state=active]:text-white">
+              <Settings className="w-4 h-4 mr-2" /> Maintenance
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="monitoring" className="space-y-4">
+            {/* ... monitoring content ... */}
+          </TabsContent>
+
+          <TabsContent value="maintenance" className="space-y-6">
+            <div className="grid grid-cols-1 gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Fleet Maintenance Overview</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="divide-y">
+                    {vehicles?.map(v => (
+                      <div key={v.id} className="py-4 flex items-center justify-between">
+                        <div>
+                          <p className="font-bold">{v.vehicleNumber} ({v.type})</p>
+                          <p className="text-sm text-slate-500">Mileage: {v.currentMileage} km | Fuel: {v.currentFuel}%</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm">Last Service: {v.lastServiceDate ? new Date(v.lastServiceDate).toLocaleDateString() : 'Never'}</p>
+                          <p className={`text-sm font-bold ${v.nextServiceMileage && v.currentMileage && v.nextServiceMileage - v.currentMileage < 500 ? 'text-red-500' : 'text-green-500'}`}>
+                            Next Service: {v.nextServiceMileage} km
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-200px)]">
               {/* Sidebar List */}
               <Card className="col-span-1 border-slate-200 shadow-md h-full flex flex-col overflow-hidden">
