@@ -18,28 +18,38 @@ import { Label } from "@/components/ui/label";
 import { ShieldCheck, ShipWheel } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const loginSchema = z.object({
+const managerLoginSchema = z.object({
   username: z.string().min(1, "Username is required"),
   password: z.string().min(1, "Password is required"),
 });
 
-type LoginForm = z.infer<typeof loginSchema>;
+const driverLoginSchema = z.object({
+  temporaryUsername: z.string().min(1, "Temporary username is required"),
+  temporaryPassword: z.string().min(1, "Temporary password is required"),
+});
+
+type ManagerLoginForm = z.infer<typeof managerLoginSchema>;
+type DriverLoginForm = z.infer<typeof driverLoginSchema>;
 
 export default function Login() {
   const [match, params] = useRoute("/login/:type");
   const type = params?.type === "driver" ? "driver" : "manager";
   const { loginManager, loginDriver, isManagerLoggingIn, isDriverLoggingIn } = useAuth();
   
-  const form = useForm<LoginForm>({
-    resolver: zodResolver(loginSchema),
+  const managerForm = useForm<ManagerLoginForm>({
+    resolver: zodResolver(managerLoginSchema),
   });
 
-  const onSubmit = (data: LoginForm) => {
-    if (type === "manager") {
-      loginManager(data);
-    } else {
-      loginDriver(data);
-    }
+  const driverForm = useForm<DriverLoginForm>({
+    resolver: zodResolver(driverLoginSchema),
+  });
+
+  const onSubmitManager = (data: ManagerLoginForm) => {
+    loginManager(data);
+  };
+
+  const onSubmitDriver = (data: DriverLoginForm) => {
+    loginDriver(data);
   };
 
   const isPending = type === "manager" ? isManagerLoggingIn : isDriverLoggingIn;
@@ -63,7 +73,7 @@ export default function Login() {
             {type === 'manager' ? 'Manager Portal' : 'Driver Access'}
           </CardTitle>
           <CardDescription className="text-center">
-            Enter your credentials to access the dashboard
+            {type === 'manager' ? 'Enter your credentials to access the dashboard' : 'Enter your temporary trip credentials'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -76,40 +86,77 @@ export default function Login() {
              </Link>
           </div>
 
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
-              <Input 
-                id="username" 
-                placeholder="Enter username" 
-                {...form.register("username")} 
-                className="bg-white"
-              />
-              {form.formState.errors.username && (
-                <p className="text-sm text-destructive">{form.formState.errors.username.message}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input 
-                id="password" 
-                type="password" 
-                placeholder="••••••••" 
-                {...form.register("password")} 
-                className="bg-white"
-              />
-              {form.formState.errors.password && (
-                <p className="text-sm text-destructive">{form.formState.errors.password.message}</p>
-              )}
-            </div>
-            <Button 
-              type="submit" 
-              className="w-full text-lg h-12 mt-4 font-semibold shadow-lg shadow-primary/20" 
-              disabled={isPending}
-            >
-              {isPending ? "Authenticating..." : "Sign In"}
-            </Button>
-          </form>
+          {type === 'manager' ? (
+            <form onSubmit={managerForm.handleSubmit(onSubmitManager)} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="username">Username</Label>
+                <Input 
+                  id="username" 
+                  placeholder="Enter username" 
+                  {...managerForm.register("username")} 
+                  className="bg-white"
+                />
+                {managerForm.formState.errors.username && (
+                  <p className="text-sm text-destructive">{managerForm.formState.errors.username.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input 
+                  id="password" 
+                  type="password" 
+                  placeholder="••••••••" 
+                  {...managerForm.register("password")} 
+                  className="bg-white"
+                />
+                {managerForm.formState.errors.password && (
+                  <p className="text-sm text-destructive">{managerForm.formState.errors.password.message}</p>
+                )}
+              </div>
+              <Button 
+                type="submit" 
+                className="w-full text-lg h-12 mt-4 font-semibold shadow-lg shadow-primary/20" 
+                disabled={isPending}
+              >
+                {isPending ? "Authenticating..." : "Sign In"}
+              </Button>
+            </form>
+          ) : (
+            <form onSubmit={driverForm.handleSubmit(onSubmitDriver)} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="temporaryUsername">Temporary Username</Label>
+                <Input 
+                  id="temporaryUsername" 
+                  placeholder="Enter temporary username" 
+                  {...driverForm.register("temporaryUsername")} 
+                  className="bg-white"
+                />
+                {driverForm.formState.errors.temporaryUsername && (
+                  <p className="text-sm text-destructive">{driverForm.formState.errors.temporaryUsername.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="temporaryPassword">Temporary Password</Label>
+                <Input 
+                  id="temporaryPassword" 
+                  type="password" 
+                  placeholder="Enter temporary password" 
+                  {...driverForm.register("temporaryPassword")} 
+                  className="bg-white"
+                />
+                {driverForm.formState.errors.temporaryPassword && (
+                  <p className="text-sm text-destructive">{driverForm.formState.errors.temporaryPassword.message}</p>
+                )}
+              </div>
+              <Button 
+                type="submit" 
+                className="w-full text-lg h-12 mt-4 font-semibold shadow-lg shadow-primary/20" 
+                disabled={isPending}
+              >
+                {isPending ? "Authenticating..." : "Start Trip"}
+              </Button>
+            </form>
+          )}
         </CardContent>
         <CardFooter className="justify-center border-t border-slate-100 py-4">
           <p className="text-sm text-muted-foreground">

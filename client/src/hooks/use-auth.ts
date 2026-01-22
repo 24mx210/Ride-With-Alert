@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { api, type LoginRequest } from "@shared/routes";
+import { api, type LoginRequest, type DriverLoginRequest } from "@shared/routes";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 
@@ -22,6 +22,7 @@ export function useAuth() {
       return api.auth.managerLogin.responses[200].parse(await res.json());
     },
     onSuccess: (data) => {
+      localStorage.setItem("manager", JSON.stringify(data));
       toast({ title: "Welcome back!", description: `Logged in as Manager: ${data.username}` });
       setLocation("/manager/dashboard");
     },
@@ -31,7 +32,7 @@ export function useAuth() {
   });
 
   const driverLoginMutation = useMutation({
-    mutationFn: async (credentials: LoginRequest) => {
+    mutationFn: async (credentials: DriverLoginRequest) => {
       const res = await fetch(api.auth.driverLogin.path, {
         method: api.auth.driverLogin.method,
         headers: { "Content-Type": "application/json" },
@@ -39,13 +40,14 @@ export function useAuth() {
         credentials: "include",
       });
       if (!res.ok) {
-        if (res.status === 401) throw new Error("Invalid username or password");
+        if (res.status === 401) throw new Error("Invalid temporary credentials or trip expired");
         throw new Error("Login failed");
       }
       return api.auth.driverLogin.responses[200].parse(await res.json());
     },
     onSuccess: (data) => {
-      toast({ title: "Welcome back!", description: `Logged in as Driver: ${data.name}` });
+      localStorage.setItem("trip", JSON.stringify(data));
+      toast({ title: "Trip Activated!", description: `Logged in as Driver: ${data.driver.name} - Vehicle: ${data.vehicle.vehicleNumber}` });
       setLocation("/vehicle/dashboard");
     },
     onError: (error) => {
@@ -62,6 +64,9 @@ export function useAuth() {
       if (!res.ok) throw new Error("Logout failed");
     },
     onSuccess: () => {
+      localStorage.removeItem("trip");
+      localStorage.removeItem("driver");
+      localStorage.removeItem("manager");
       toast({ title: "Logged out", description: "See you next time." });
       setLocation("/");
     },

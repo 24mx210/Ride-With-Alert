@@ -2,19 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useSocket as useSocketHook } from "@/hooks/use-socket";
 import { useTriggerEmergency } from "@/hooks/use-emergency";
+import { useCurrentTrip } from "@/hooks/use-fleet";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MapPin, Navigation, Video, AlertTriangle, LogOut, Fuel, Wrench } from "lucide-react";
+import { MapPin, Navigation, Video, AlertTriangle, LogOut, Fuel, Wrench, CheckCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import ReactWebcam from "react-webcam";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@shared/routes";
 import { Map } from "@/components/Map";
 
 export default function DriverDashboard() {
   const { logout } = useAuth();
-  const { socket, emit, events } = useSocketHook();
+  const { socket, emit, subscribe, events } = useSocketHook();
   const { toast } = useToast();
   const { mutate: triggerEmergency, isPending: isTriggering } = useTriggerEmergency();
 
@@ -22,23 +21,16 @@ export default function DriverDashboard() {
   const [location, setLocation] = useState<{lat: number, lng: number} | null>(null);
   const [isEmergencyActive, setIsEmergencyActive] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Monitoring Active");
+  const [acknowledgmentMessage, setAcknowledgmentMessage] = useState<string | null>(null);
+  const [isProcessingEmergency, setIsProcessingEmergency] = useState(false);
   
   // Refs
   const webcamRef = useRef<ReactWebcam>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
 
-  // Fetch current driver info to get assigned vehicle
-  const { data: driver } = useQuery({
-    queryKey: ["/api/driver/me"], // Assuming we had this endpoint or stored in context, otherwise simplified:
-    queryFn: async () => {
-      // For this demo, we assume the user context would have this, but let's mock fetching "me"
-      // In a real app we'd have a /me endpoint. We'll use local storage mock or similar if needed.
-      // But since we need vehicle ID for socket events, let's assume we got it from login response stored in context/local storage
-      // For simplicity in this generator, I'll mock getting vehicle details
-      return { id: 1, name: "John Doe", vehicleId: 1 }; 
-    }
-  });
+  // Fetch current trip info
+  const { data: trip } = useCurrentTrip();
 
   // Get GPS Location
   useEffect(() => {
@@ -53,9 +45,9 @@ export default function DriverDashboard() {
         setLocation(newLoc);
         
         // Emit location update to server
-        if (driver?.vehicleId) {
+        if (trip?.vehicleNumber) {
           emit(events.LOCATION_UPDATE, {
-            vehicleId: driver.vehicleId,
+            vehicleNumber: trip.vehicleNumber,
             location: newLoc
           });
         }
@@ -65,7 +57,7 @@ export default function DriverDashboard() {
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [driver, emit, events, toast]);
+  }, [trip, emit, events, toast]);
 
   // Handle Recording
   const handleDataAvailable = ({ data }: BlobEvent) => {
@@ -77,15 +69,22 @@ export default function DriverDashboard() {
   const startRecording = () => {
     setRecordedChunks([]);
     if (webcamRef.current && webcamRef.current.stream) {
-      mediaRecorderRef.current = new MediaRecorder(webcamRef.current.stream, {
-        mimeType: "video/webm"
-      });
+      const options: MediaRecorderOptions = {
+        mimeType: "video/webm;codecs=vp8,opus"
+      };
+      
+      // Fallback to default if codec not supported
+      if (!MediaRecorder.isTypeSupported(options.mimeType!)) {
+        options.mimeType = "video/webm";
+      }
+      
+      mediaRecorderRef.current = new MediaRecorder(webcamRef.current.stream, options);
       mediaRecorderRef.current.addEventListener(
         "dataavailable",
         handleDataAvailable
       );
-      mediaRecorderRef.current.start();
-      setTimeout(stopRecording, 5000); // Record for 5 seconds
+      mediaRecorderRef.current.start(1000); // Collect data every second
+      setTimeout(stopRecording, 45000); // Record for 45 seconds (30-60 range)
     }
   };
 
@@ -97,35 +96,81 @@ export default function DriverDashboard() {
 
   // Upload video when chunks are ready
   useEffect(() => {
-    if (recordedChunks.length > 0 && isEmergencyActive) {
+    if (recordedChunks.length > 0 && isEmergencyActive && mediaRecorderRef.current?.state === "inactive") {
       const blob = new Blob(recordedChunks, { type: "video/webm" });
       const formData = new FormData();
       formData.append("video", blob, "emergency-capture.webm");
-      if (driver?.vehicleId && location) {
-        formData.append("vehicleId", driver.vehicleId.toString());
-        formData.append("driverId", driver.id.toString());
-        formData.append("latitude", location.lat.toString());
-        formData.append("longitude", location.lng.toString());
+      if (trip?.vehicleNumber && trip?.driverNumber && location) {
+        formData.append("vehicleNumber", trip.vehicleNumber);
+        formData.append("driverNumber", trip.driverNumber);
+        formData.append("location", JSON.stringify({ latitude: location.lat, longitude: location.lng }));
         
         triggerEmergency(formData, {
           onSuccess: () => {
              setStatusMessage("ALERT SENT! Help is on the way.");
+             setIsProcessingEmergency(false);
              emit(events.EMERGENCY_TRIGGERED, {
-               vehicleId: driver.vehicleId,
-               location: location,
-               driverId: driver.id
+               vehicleNumber: trip.vehicleNumber,
+               driverNumber: trip.driverNumber,
+               location: location
              });
+          },
+          onError: () => {
+            setIsProcessingEmergency(false);
+            setIsEmergencyActive(false);
+            setStatusMessage("Monitoring Active");
           }
         });
       }
     }
-  }, [recordedChunks, isEmergencyActive, driver, location, triggerEmergency, emit, events]);
+  }, [recordedChunks, isEmergencyActive, trip, location, triggerEmergency, emit, events]);
+
+  // Listen for acknowledgment
+  useEffect(() => {
+    const unsubscribe = subscribe(events.RECEIVE_ACKNOWLEDGEMENT, (data) => {
+      setAcknowledgmentMessage(data.message || "Emergency acknowledged by manager");
+      setIsEmergencyActive(false);
+      setIsProcessingEmergency(false);
+      setStatusMessage("Emergency acknowledged by manager");
+    });
+
+    const unsubscribeStopAlarm = subscribe(events.STOP_ALARM, () => {
+      // Alarm stopped, but don't change emergency state
+    });
+
+    return () => {
+      unsubscribe?.();
+      unsubscribeStopAlarm?.();
+    };
+  }, [subscribe, events]);
+
+  // Request camera and location permissions on first load
+  useEffect(() => {
+    if (trip && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then(() => {
+          console.log("Camera and microphone access granted");
+        })
+        .catch((err) => {
+          console.error("Camera access error:", err);
+          toast({ title: "Camera Access", description: "Please grant camera permissions for emergency recording", variant: "destructive" });
+        });
+    }
+  }, [trip, toast]);
 
   const handleEmergencyClick = () => {
     if (!location) {
       toast({ title: "Waiting for GPS", description: "Cannot send alert without location.", variant: "destructive" });
       return;
     }
+    
+    // Prevent multiple rapid clicks
+    if (isProcessingEmergency || isEmergencyActive) {
+      toast({ title: "Emergency in progress", description: "Please wait for current emergency to process.", variant: "destructive" });
+      return;
+    }
+    
+    setIsProcessingEmergency(true);
     setIsEmergencyActive(true);
     setStatusMessage("Recording Incident...");
     startRecording();
@@ -145,10 +190,13 @@ export default function DriverDashboard() {
 
       <main className="flex-grow p-4 space-y-4">
         {/* Status Bar */}
-        <div className={`p-4 rounded-xl border flex items-center justify-between shadow-lg transition-colors duration-500 ${isEmergencyActive ? 'bg-red-900/50 border-red-500 animate-pulse' : 'bg-slate-800 border-slate-700'}`}>
+        <div className={`p-4 rounded-xl border flex items-center justify-between shadow-lg transition-colors duration-500 ${isEmergencyActive ? 'bg-red-900/50 border-red-500 animate-pulse' : acknowledgmentMessage ? 'bg-green-900/50 border-green-500' : 'bg-slate-800 border-slate-700'}`}>
           <div className="flex items-center gap-3">
-             <div className={`w-3 h-3 rounded-full ${isEmergencyActive ? 'bg-red-500' : 'bg-green-500'}`} />
+             <div className={`w-3 h-3 rounded-full ${isEmergencyActive ? 'bg-red-500' : acknowledgmentMessage ? 'bg-green-500' : 'bg-green-500'}`} />
              <span className="font-bold text-lg">{statusMessage}</span>
+             {acknowledgmentMessage && (
+               <CheckCircle className="w-5 h-5 text-green-400" />
+             )}
           </div>
           {location && (
             <Badge variant="outline" className="border-slate-500 text-slate-300 font-mono">
@@ -157,6 +205,40 @@ export default function DriverDashboard() {
             </Badge>
           )}
         </div>
+
+        {/* Trip Info Card */}
+        {trip && (
+          <Card className="bg-slate-800 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white">Active Trip</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm text-slate-400">Driver</p>
+                  <p className="text-lg font-bold text-white">{trip.driver.name} ({trip.driverNumber})</p>
+                </div>
+                <div>
+                  <p className="text-sm text-slate-400">Vehicle</p>
+                  <p className="text-xl font-bold text-white">{trip.vehicle.vehicleNumber}</p>
+                  <p className="text-sm text-slate-400">{trip.vehicle.vehicleType}</p>
+                </div>
+                <div className="flex items-center justify-between pt-2 border-t border-slate-700">
+                  <div>
+                    <p className="text-sm text-slate-400">Fuel Level</p>
+                    <p className="text-2xl font-bold text-white">{trip.vehicle.currentFuel}%</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-slate-400">Estimated Range</p>
+                    <p className="text-lg font-bold text-white">
+                      ~{Math.round((trip.vehicle.currentFuel / 100) * trip.vehicle.fuelCapacity * 10)} km
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Camera Preview */}
         <div className="relative rounded-xl overflow-hidden bg-black aspect-video border border-slate-700 shadow-2xl">
@@ -188,14 +270,14 @@ export default function DriverDashboard() {
         {/* SOS Button */}
         <Button 
           onClick={handleEmergencyClick}
-          disabled={isTriggering || isEmergencyActive}
+          disabled={isTriggering || isEmergencyActive || isProcessingEmergency}
           className={`w-full h-32 text-3xl font-black tracking-widest rounded-2xl shadow-xl transition-all duration-200 transform active:scale-95 ${
-            isEmergencyActive 
+            isEmergencyActive || isProcessingEmergency
             ? 'bg-slate-700 text-slate-400 cursor-not-allowed' 
             : 'bg-red-600 hover:bg-red-700 text-white shadow-red-900/50 hover:shadow-red-900/70 border-b-8 border-red-800 active:border-b-0 active:translate-y-2'
           }`}
         >
-          {isTriggering ? (
+          {isTriggering || isProcessingEmergency ? (
             "SENDING..." 
           ) : isEmergencyActive ? (
             "HELP REQUESTED" 

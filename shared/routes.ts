@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { insertManagerSchema, insertDriverSchema, insertVehicleSchema, insertEmergencySchema, managers, drivers, vehicles, emergencies } from './schema';
+import { insertManagerSchema, insertDriverSchema, insertVehicleSchema, insertTripSchema, insertEmergencySchema, managers, drivers, vehicles, trips, emergencies } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -31,9 +31,9 @@ export const api = {
     driverLogin: {
       method: 'POST' as const,
       path: '/api/auth/driver/login',
-      input: z.object({ username: z.string(), password: z.string() }),
+      input: z.object({ temporaryUsername: z.string(), temporaryPassword: z.string() }),
       responses: {
-        200: z.custom<typeof drivers.$inferSelect>(),
+        200: z.custom<typeof trips.$inferSelect & { driver: typeof drivers.$inferSelect, vehicle: typeof vehicles.$inferSelect }>(),
         401: errorSchemas.unauthorized,
       },
     },
@@ -57,10 +57,10 @@ export const api = {
     },
     assignDriver: {
       method: 'POST' as const,
-      path: '/api/vehicle/assign-driver',
-      input: z.object({ vehicleId: z.number(), driverId: z.number() }),
+      path: '/api/trip/assign',
+      input: z.object({ driverNumber: z.string(), vehicleNumber: z.string() }),
       responses: {
-        200: z.custom<typeof vehicles.$inferSelect>(),
+        200: z.custom<typeof trips.$inferSelect & { driver: typeof drivers.$inferSelect, vehicle: typeof vehicles.$inferSelect }>(),
         404: errorSchemas.notFound,
       },
     },
@@ -68,7 +68,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/vehicle/all',
       responses: {
-        200: z.array(z.custom<typeof vehicles.$inferSelect & { driver?: typeof drivers.$inferSelect | null }>()),
+        200: z.array(z.custom<typeof vehicles.$inferSelect>()),
       },
     },
     get: {
@@ -76,6 +76,20 @@ export const api = {
       path: '/api/vehicle/:id',
       responses: {
         200: z.custom<typeof vehicles.$inferSelect & { driver?: typeof drivers.$inferSelect | null }>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/vehicle/:vehicleNumber',
+      input: z.object({
+        vehicleType: z.string().optional(),
+        fuelCapacity: z.number().optional(),
+        currentFuel: z.number().optional(),
+        currentMileage: z.number().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof vehicles.$inferSelect>(),
         404: errorSchemas.notFound,
       },
     },
@@ -97,7 +111,7 @@ export const api = {
       method: 'POST' as const,
       path: '/api/fuel/add',
       input: z.object({
-        vehicleId: z.number(),
+        vehicleNumber: z.string(),
         amount: z.string(),
         cost: z.string(),
         mileage: z.number(),
@@ -108,7 +122,7 @@ export const api = {
     },
     list: {
       method: 'GET' as const,
-      path: '/api/fuel/:vehicleId',
+      path: '/api/fuel/:vehicleNumber',
       responses: {
         200: z.array(z.any()),
       },
@@ -119,7 +133,7 @@ export const api = {
       method: 'POST' as const,
       path: '/api/service/add',
       input: z.object({
-        vehicleId: z.number(),
+        vehicleNumber: z.string(),
         description: z.string(),
         cost: z.string(),
         mileage: z.number(),
@@ -130,7 +144,7 @@ export const api = {
     },
     list: {
       method: 'GET' as const,
-      path: '/api/service/:vehicleId',
+      path: '/api/service/:vehicleNumber',
       responses: {
         200: z.array(z.any()),
       },
@@ -153,12 +167,76 @@ export const api = {
         200: z.array(z.custom<typeof drivers.$inferSelect>()),
       },
     },
+    getMe: {
+      method: 'GET' as const,
+      path: '/api/driver/me',
+      responses: {
+        200: z.custom<typeof drivers.$inferSelect & { vehicle?: typeof vehicles.$inferSelect | null }>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/driver/:driverNumber',
+      input: z.object({
+        name: z.string().optional(),
+        phoneNumber: z.string().optional(),
+        licenseNumber: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof drivers.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+  },
+  trips: {
+    assign: {
+      method: 'POST' as const,
+      path: '/api/trip/assign',
+      input: z.object({ driverNumber: z.string(), vehicleNumber: z.string() }),
+      responses: {
+        200: z.custom<typeof trips.$inferSelect & { driver: typeof drivers.$inferSelect, vehicle: typeof vehicles.$inferSelect }>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    complete: {
+      method: 'POST' as const,
+      path: '/api/trip/complete',
+      input: z.object({ tripId: z.number() }),
+      responses: {
+        200: z.custom<typeof trips.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    cancel: {
+      method: 'POST' as const,
+      path: '/api/trip/cancel',
+      input: z.object({ tripId: z.number() }),
+      responses: {
+        200: z.custom<typeof trips.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    list: {
+      method: 'GET' as const,
+      path: '/api/trip/all',
+      responses: {
+        200: z.array(z.custom<typeof trips.$inferSelect & { driver: typeof drivers.$inferSelect, vehicle: typeof vehicles.$inferSelect }>()),
+      },
+    },
+    getCurrent: {
+      method: 'GET' as const,
+      path: '/api/trip/current',
+      responses: {
+        200: z.custom<typeof trips.$inferSelect & { driver: typeof drivers.$inferSelect, vehicle: typeof vehicles.$inferSelect }>(),
+        404: errorSchemas.notFound,
+      },
+    },
   },
   emergency: {
     trigger: {
       method: 'POST' as const,
       path: '/api/emergency/trigger',
-      // Multipart form data is not strictly validated here by Zod body parser, handled by Multer + manual validation
       input: z.any(), 
       responses: {
         201: z.custom<typeof emergencies.$inferSelect>(),
@@ -178,6 +256,20 @@ export const api = {
       path: '/api/emergency/all',
       responses: {
         200: z.array(z.custom<typeof emergencies.$inferSelect & { driver: typeof drivers.$inferSelect, vehicle: typeof vehicles.$inferSelect }>()),
+      },
+    },
+    nearbyFacilities: {
+      method: 'GET' as const,
+      path: '/api/emergency/nearby-facilities',
+      responses: {
+        200: z.array(z.object({
+          name: z.string(),
+          type: z.enum(["police", "hospital"]),
+          latitude: z.number(),
+          longitude: z.number(),
+          distance: z.number(),
+          phone: z.string(),
+        })),
       },
     },
   },

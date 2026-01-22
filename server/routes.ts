@@ -7,7 +7,12 @@ import fs from "fs";
 import { storage } from "./storage";
 import { api, socketEvents } from "@shared/routes";
 import { insertVehicleSchema, insertDriverSchema } from "@shared/schema";
+import { generateTemporaryCredentials, sendSMS, findNearbyFacilities } from "./utils";
 import { z } from "zod";
+
+// Emergency notification phone numbers (configured)
+const POLICE_PHONE = process.env.POLICE_PHONE || "+1234567890";
+const HOSPITAL_PHONE = process.env.HOSPITAL_PHONE || "+0987654321";
 
 // Ensure uploads directory exists
 const uploadDir = path.join(process.cwd(), "uploads");
@@ -92,12 +97,12 @@ export async function registerRoutes(
   });
 
   app.post(api.auth.driverLogin.path, async (req, res) => {
-    const { username, password } = req.body;
-    const driver = await storage.getDriverByUsername(username);
-    if (!driver || driver.password !== password) {
-      return res.status(401).json({ message: "Invalid credentials" });
+    const { temporaryUsername, temporaryPassword } = req.body;
+    const trip = await storage.getTripByCredentials(temporaryUsername, temporaryPassword);
+    if (!trip) {
+      return res.status(401).json({ message: "Invalid temporary credentials or trip expired" });
     }
-    res.json(driver);
+    res.json(trip);
   });
 
   app.post(api.auth.logout.path, (req, res) => {
@@ -118,19 +123,120 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.vehicles.assignDriver.path, async (req, res) => {
-    const { vehicleId, driverId } = req.body;
+  app.post(api.trips.assign.path, async (req, res) => {
+    const { driverNumber, vehicleNumber } = req.body;
     try {
-      const vehicle = await storage.updateVehicleDriver(vehicleId, driverId);
-      res.json(vehicle);
+      const driver = await storage.getDriverByDriverNumber(driverNumber);
+      const vehicle = await storage.getVehicleByVehicleNumber(vehicleNumber);
+      
+      if (!driver || !vehicle) {
+        return res.status(404).json({ message: "Driver or Vehicle not found" });
+      }
+
+      // Check if driver or vehicle already has active trip
+      const existingDriverTrip = await storage.getActiveTripByDriverNumber(driverNumber);
+      const existingVehicleTrip = await storage.getActiveTripByVehicleNumber(vehicleNumber);
+      
+      if (existingDriverTrip || existingVehicleTrip) {
+        return res.status(400).json({ message: "Driver or Vehicle already has an active trip" });
+      }
+
+      // Generate temporary credentials
+      const { temporaryUsername, temporaryPassword } = generateTemporaryCredentials();
+
+      // Create trip
+      const trip = await storage.createTrip({
+        driverNumber,
+        vehicleNumber,
+        temporaryUsername,
+        temporaryPassword,
+        status: "ACTIVE",
+      });
+
+      // Get full trip with relations
+      const fullTrip = await storage.getTripByCredentials(temporaryUsername, temporaryPassword);
+      if (!fullTrip) {
+        return res.status(500).json({ message: "Failed to create trip" });
+      }
+
+      // Send SMS notification
+      const smsMessage = `Trip Assignment\nVehicle: ${vehicleNumber}\nDriver: ${driver.name}\nTemporary Username: ${temporaryUsername}\nTemporary Password: ${temporaryPassword}\n\nLogin at: ${req.protocol}://${req.get('host')}/login/driver`;
+      await sendSMS(driver.phoneNumber, smsMessage);
+
+      res.json(fullTrip);
     } catch (err) {
-      res.status(404).json({ message: "Vehicle or Driver not found" });
+      console.error("Trip assignment error:", err);
+      res.status(500).json({ message: "Internal server error" });
     }
   });
 
   app.get(api.vehicles.list.path, async (req, res) => {
     const vehicles = await storage.getAllVehicles();
     res.json(vehicles);
+  });
+
+  app.post(api.trips.complete.path, async (req, res) => {
+    const { tripId } = req.body;
+    try {
+      const trip = await storage.completeTrip(tripId);
+      res.json(trip);
+    } catch (err) {
+      res.status(404).json({ message: "Trip not found" });
+    }
+  });
+
+  app.post(api.trips.cancel.path, async (req, res) => {
+    const { tripId } = req.body;
+    try {
+      const fullTrip = await storage.getTripById(tripId);
+      if (!fullTrip) {
+        return res.status(404).json({ message: "Trip not found" });
+      }
+
+      const trip = await storage.cancelTrip(tripId);
+      
+      // Send cancellation SMS to driver
+      const smsMessage = `Trip Cancelled\nYour trip assignment has been cancelled.\nVehicle: ${fullTrip.vehicleNumber}\nDriver: ${fullTrip.driver.name}\n\nPlease contact management for details.`;
+      await sendSMS(fullTrip.driver.phoneNumber, smsMessage);
+
+      res.json(trip);
+    } catch (err) {
+      res.status(404).json({ message: "Trip not found" });
+    }
+  });
+
+  app.get(api.trips.list.path, async (req, res) => {
+    const trips = await storage.getAllTrips();
+    res.json(trips);
+  });
+
+  app.get(api.trips.getCurrent.path, async (req, res) => {
+    try {
+      const temporaryUsername = req.query.temporaryUsername as string;
+      if (!temporaryUsername) {
+        return res.status(400).json({ message: "Temporary username required" });
+      }
+      const trip = await storage.getTripByCredentials(temporaryUsername, req.query.temporaryPassword as string);
+      if (!trip) {
+        return res.status(404).json({ message: "Active trip not found" });
+      }
+      res.json(trip);
+    } catch (err) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.patch(api.vehicles.update.path, async (req, res) => {
+    try {
+      const vehicleNumber = req.params.vehicleNumber;
+      const vehicle = await storage.updateVehicle(vehicleNumber, req.body);
+      if (!vehicle) {
+        return res.status(404).json({ message: "Vehicle not found" });
+      }
+      res.json(vehicle);
+    } catch (err) {
+      res.status(500).json({ message: "Internal server error" });
+    }
   });
 
   app.patch(api.vehicles.updateStatus.path, async (req, res) => {
@@ -146,12 +252,25 @@ export async function registerRoutes(
     }
   });
 
+  app.patch(api.drivers.update.path, async (req, res) => {
+    try {
+      const driverNumber = req.params.driverNumber;
+      const driver = await storage.updateDriver(driverNumber, req.body);
+      if (!driver) {
+        return res.status(404).json({ message: "Driver not found" });
+      }
+      res.json(driver);
+    } catch (err) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // === FUEL & SERVICE API ===
   app.post(api.fuel.add.path, async (req, res) => {
     try {
       const log = await storage.createFuelLog(req.body);
       // Update vehicle mileage and fuel level
-      await storage.updateVehicleStatus(req.body.vehicleId, { 
+      await storage.updateVehicleStatus(req.body.vehicleNumber, { 
         currentMileage: req.body.mileage,
         currentFuel: 100 // Assume full tank after log
       });
@@ -163,7 +282,7 @@ export async function registerRoutes(
 
   app.get(api.fuel.list.path, async (req, res) => {
     try {
-      const logs = await storage.getFuelLogs(parseInt(req.params.vehicleId));
+      const logs = await storage.getFuelLogs(req.params.vehicleNumber);
       res.json(logs);
     } catch (err) {
       res.status(500).json({ message: "Internal server error" });
@@ -173,7 +292,7 @@ export async function registerRoutes(
   app.post(api.service.add.path, async (req, res) => {
     try {
       const log = await storage.createServiceLog(req.body);
-      await storage.updateVehicleStatus(req.body.vehicleId, { 
+      await storage.updateVehicleStatus(req.body.vehicleNumber, { 
         currentMileage: req.body.mileage,
         lastServiceDate: new Date()
       });
@@ -185,7 +304,7 @@ export async function registerRoutes(
 
   app.get(api.service.list.path, async (req, res) => {
     try {
-      const logs = await storage.getServiceLogs(parseInt(req.params.vehicleId));
+      const logs = await storage.getServiceLogs(req.params.vehicleNumber);
       res.json(logs);
     } catch (err) {
       res.status(500).json({ message: "Internal server error" });
@@ -211,29 +330,85 @@ export async function registerRoutes(
     res.json(drivers);
   });
 
+
   // === EMERGENCY API ===
   app.post(api.emergency.trigger.path, upload.single("video"), async (req, res) => {
     try {
-      // req.body fields come as strings from FormData, need manual parsing/handling
-      const driverId = parseInt(req.body.driverId);
-      const vehicleId = parseInt(req.body.vehicleId);
-      const location = JSON.parse(req.body.location);
+      const driverNumber = req.body.driverNumber;
+      const vehicleNumber = req.body.vehicleNumber;
       
+      // Check if there's already an active emergency for this driver/vehicle (within last 5 minutes)
+      const existingActive = await storage.getActiveEmergencyForDriverVehicle(driverNumber, vehicleNumber);
+      if (existingActive) {
+        // Return existing emergency instead of creating duplicate
+        const driver = await storage.getDriverByDriverNumber(driverNumber);
+        const vehicle = await storage.getVehicleByVehicleNumber(vehicleNumber);
+        if (driver && vehicle) {
+          const nearbyFacilities = findNearbyFacilities(
+            parseFloat(String(existingActive.latitude)),
+            parseFloat(String(existingActive.longitude)),
+            POLICE_PHONE,
+            HOSPITAL_PHONE
+          );
+          return res.status(200).json({
+            ...existingActive,
+            driver,
+            vehicle,
+            nearbyFacilities,
+            message: "Emergency already active for this driver/vehicle"
+          });
+        }
+      }
+      
+      let location;
+      try {
+        location = typeof req.body.location === 'string' ? JSON.parse(req.body.location) : req.body.location;
+      } catch {
+        location = { latitude: parseFloat(req.body.latitude), longitude: parseFloat(req.body.longitude) };
+      }
+      
+      if (!location || (!location.latitude && !location.lat) || (!location.longitude && !location.lng)) {
+        return res.status(400).json({ message: "Location is required" });
+      }
+
+      const latitude = parseFloat(String(location.latitude || location.lat));
+      const longitude = parseFloat(String(location.longitude || location.lng));
+
       const videoUrl = req.file ? `/uploads/${req.file.filename}` : undefined;
 
       const emergency = await storage.createEmergency({
-        driverId,
-        vehicleId,
-        location,
+        driverNumber,
+        vehicleNumber,
+        latitude: String(latitude),
+        longitude: String(longitude),
         videoUrl,
       });
 
-      // Emit socket event
-      io.emit(socketEvents.RECEIVE_EMERGENCY, {
+      const driver = await storage.getDriverByDriverNumber(driverNumber);
+      const vehicle = await storage.getVehicleByVehicleNumber(vehicleNumber);
+
+      if (!driver || !vehicle) {
+        return res.status(404).json({ message: "Driver or vehicle not found" });
+      }
+
+      // Find nearby facilities
+      const nearbyFacilities = findNearbyFacilities(latitude, longitude, POLICE_PHONE, HOSPITAL_PHONE);
+
+      // Emit socket event to all dashboards (manager, police, hospital)
+      const emergencyData = {
         ...emergency,
-        driver: await storage.getDriver(driverId),
-        vehicle: await storage.getVehicle(vehicleId),
-      });
+        driver,
+        vehicle,
+        nearbyFacilities,
+      };
+
+      io.emit(socketEvents.RECEIVE_EMERGENCY, emergencyData);
+
+      // Send emergency notifications to police and hospital
+      const emergencyMessage = `EMERGENCY ALERT\nDriver: ${driver.name} (${driverNumber})\nVehicle: ${vehicleNumber}\nLocation: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}\nTime: ${new Date().toLocaleString()}`;
+      
+      await sendSMS(POLICE_PHONE, emergencyMessage);
+      await sendSMS(HOSPITAL_PHONE, emergencyMessage);
 
       res.status(201).json(emergency);
     } catch (err) {
@@ -242,13 +417,62 @@ export async function registerRoutes(
     }
   });
 
+  app.get(api.emergency.nearbyFacilities.path, async (req, res) => {
+    try {
+      const latitude = parseFloat(req.query.latitude as string);
+      const longitude = parseFloat(req.query.longitude as string);
+      
+      if (isNaN(latitude) || isNaN(longitude)) {
+        return res.status(400).json({ message: "Valid latitude and longitude required" });
+      }
+
+      const facilities = findNearbyFacilities(latitude, longitude, POLICE_PHONE, HOSPITAL_PHONE);
+      res.json(facilities);
+    } catch (err) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.post(api.emergency.acknowledge.path, async (req, res) => {
     const { emergencyId } = req.body;
     try {
+      // Get the emergency first to get driver/vehicle info
+      const fullEmergency = await storage.getEmergencyWithRelations(emergencyId);
+      
+      if (!fullEmergency) {
+        return res.status(404).json({ message: "Emergency not found" });
+      }
+
+      // Acknowledge the specific emergency
       const emergency = await storage.updateEmergencyStatus(emergencyId, "ACKNOWLEDGED");
-      io.emit(socketEvents.RECEIVE_ACKNOWLEDGEMENT, emergency);
+      
+      // Also acknowledge ALL other active emergencies for the same driver/vehicle
+      // This fixes the issue where hundreds of emergencies were created
+      const allAcknowledged = await storage.updateAllActiveEmergenciesForDriverVehicle(
+        fullEmergency.driverNumber,
+        fullEmergency.vehicleNumber,
+        "ACKNOWLEDGED"
+      );
+      
+      console.log(`[EMERGENCY ACK] Acknowledged ${allAcknowledged.length} emergencies for ${fullEmergency.driverNumber}/${fullEmergency.vehicleNumber}`);
+      
+      // Emit stop alarm to all clients (driver, manager, police, hospital)
+      io.emit(socketEvents.STOP_ALARM, { 
+        emergencyId,
+        driverNumber: fullEmergency.driverNumber,
+        vehicleNumber: fullEmergency.vehicleNumber
+      });
+      
+      // Emit acknowledgment to driver
+      io.emit(socketEvents.RECEIVE_ACKNOWLEDGEMENT, {
+        emergencyId,
+        message: "Emergency acknowledged by manager",
+        emergency: fullEmergency
+      });
+      
       res.json(emergency);
     } catch (err) {
+      console.error("Acknowledge error:", err);
       res.status(404).json({ message: "Emergency not found" });
     }
   });
@@ -272,21 +496,21 @@ async function seed() {
   const vehicles = await storage.getAllVehicles();
   if (vehicles.length > 0) {
     const v = vehicles[0];
-    const fuelLogs = await storage.getFuelLogs(v.id);
+    const fuelLogs = await storage.getFuelLogs(v.vehicleNumber);
     if (fuelLogs.length === 0) {
       await storage.createFuelLog({
-        vehicleId: v.id,
+        vehicleNumber: v.vehicleNumber,
         amount: "45.5",
         cost: "68.25",
         mileage: 1250,
       });
       await storage.createServiceLog({
-        vehicleId: v.id,
+        vehicleNumber: v.vehicleNumber,
         description: "Routine Oil Change and Brake Inspection",
         cost: "150.00",
         mileage: 1200,
       });
-      await storage.updateVehicleStatus(v.id, {
+      await storage.updateVehicleStatus(v.vehicleNumber, {
         currentMileage: 1250,
         currentFuel: 85,
         lastServiceDate: new Date(),
